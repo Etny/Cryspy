@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Cryspy": {
+      "commandName": "Project",
+      "commandLineArgs": "C:\\Users\\yveem\\Documents\\testFile.txt"
+    }
+  }
+}
