@@ -2,7 +2,7 @@
   "profiles": {
     "Cryspy": {
       "commandName": "Project",
-      "commandLineArgs": "C:\\Users\\yveem\\Documents\\testFile.txt"
+      "commandLineArgs": "C:\\Users\\yveem\\Documents\\testFile.txt 14809fb1f61891aa2da33178d835f5ec "
     }
   }
 }
