@@ -13,6 +13,7 @@ namespace Cryspy
         public static readonly int Rounds = 16;
 
         private byte[] lastBlock;
+        private uint lastBlockLPopCount = 10, lastBlockRPopCount = 10;
 
         private int SBoxInputSize = 4;
         private SBox[] SubBoxes = new SBox[16];
@@ -61,26 +62,25 @@ namespace Cryspy
                 else bytes[i] = 0;
             }
 
-            lastBlock = new byte[]{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+            lastBlock = new byte[]{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+            lastBlockLPopCount = 10;
+            lastBlockRPopCount = 10;
 
-            int index = 0;
             byte[] block = new byte[BlockSize];
             byte[] encrypted;
 
-            while (index < bytes.Length)
+            for (int index = 0; index < bytes.Length; index += BlockSize)
             {
                 Array.Copy(bytes, index, block, 0, BlockSize);
 
-                for (int i = 0; i < block.Length; i++)
+                for (int i = 0; i < BlockSize; i++)
                     block[i] = (byte)(block[i] ^ lastBlock[i]);
 
-                encrypted = PermutateBlock(block, true) ;
+                 encrypted = PermutateBlock(block, true) ;
 
                 lastBlock = (byte[])encrypted.Clone();
-
+              
                 encrypted.CopyTo(bytes, index);
-
-                index += BlockSize;
             }
 
             return bytes;
@@ -96,26 +96,25 @@ namespace Cryspy
                 else bytes[i] = 0;
             }
 
-            lastBlock = new byte[] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+            lastBlock = new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+            lastBlockLPopCount = 10;
+            lastBlockRPopCount = 10;
 
-            int index = 0;
             byte[] block = new byte[BlockSize];
             byte[] decrypted;
 
-            while (index < bytes.Length)
+            for (int index = 0; index < bytes.Length; index += BlockSize)
             {
                 Array.Copy(bytes, index, block, 0, BlockSize);
 
                 decrypted = PermutateBlock(block, false);
 
-                for (int i = 0; i < decrypted.Length; i++)
+                for (int i = 0; i < BlockSize; i++)
                     decrypted[i] = (byte)(decrypted[i] ^ lastBlock[i]);
 
                 lastBlock = (byte[])block.Clone();
 
                 decrypted.CopyTo(bytes, index);
-
-                index += BlockSize;
             }
 
             return bytes;
@@ -127,11 +126,21 @@ namespace Cryspy
                 throw new Exception("Data not of block size");
 
             //Split the data into two 64-bit sections
-            long L;
-            long R;
+            UInt64 L;
+            UInt64 R;
 
-            L = BitConverter.ToInt64(data.AsSpan(0, 8));
-            R = BitConverter.ToInt64(data.AsSpan(8, 8));
+            L = (UInt64) BitConverter.ToInt64(data.AsSpan(0, 8));
+            R = (UInt64) BitConverter.ToInt64(data.AsSpan(8, 8));
+
+            //If encrypting, rotate the two halves left and the store their set bit counts
+            if (encrypt)
+            {
+                L = BitwiseRotateLeft(L, (int)lastBlockRPopCount);
+                R = BitwiseRotateLeft(R, (int)lastBlockLPopCount);
+
+                lastBlockLPopCount = System.Runtime.Intrinsics.X86.Popcnt.PopCount((uint)L);
+                lastBlockRPopCount = System.Runtime.Intrinsics.X86.Popcnt.PopCount((uint)R);
+            }
 
             //Perform the Rounds
             for (int i = 0; i < Rounds; i++)
@@ -142,6 +151,20 @@ namespace Cryspy
                     DecryptionRound(ref L, ref R, i);
             }
 
+            //If decrypting, store the set bit counts and then rotate both halves right
+            if (!encrypt)
+            {
+                UInt64 tempL = lastBlockLPopCount;
+                UInt64 tempR = lastBlockRPopCount;
+
+                lastBlockLPopCount = System.Runtime.Intrinsics.X86.Popcnt.PopCount((uint)L);
+                lastBlockRPopCount = System.Runtime.Intrinsics.X86.Popcnt.PopCount((uint)R);
+
+                L = BitwiseRotateRight(L, (int)tempR);
+                R = BitwiseRotateRight(R, (int)tempL);
+            }
+
+
             //Concatenate the two parts into a single array and return it
             byte[] result = new byte[BlockSize];
             BitConverter.GetBytes(L).CopyTo(result, 0);
@@ -149,9 +172,9 @@ namespace Cryspy
             return result;
         }
 
-        private void EncryptionRound(ref long L, ref long R, int i)
+        private void EncryptionRound(ref UInt64 L, ref UInt64 R, int i)
         {
-            long roundKey = Subkey(i);
+            UInt64 roundKey = Subkey(i);
 
             R = R ^ roundKey;
             R = Subsistute(R, true);
@@ -159,17 +182,17 @@ namespace Cryspy
 
             if (i < Rounds - 1)
             {
-                long temp = L;
+                UInt64 temp = L;
                 L = R;
                 R = temp;
             }
         }
 
-        private void DecryptionRound(ref long L, ref long R, int i)
+        private void DecryptionRound(ref UInt64 L, ref UInt64 R, int i)
         {
             i = (Rounds - 1) - i;
 
-            long roundKey = Subkey(i);
+            UInt64 roundKey = Subkey(i);
 
             L = L ^ R;
             R = Subsistute(R, false);
@@ -177,13 +200,13 @@ namespace Cryspy
 
             if (i > 0)
             {
-                long temp = L;
+                UInt64 temp = L;
                 L = R;
                 R = temp;
             }
         }
 
-        private long Subsistute(long D, bool forwards)
+        private UInt64 Subsistute(UInt64 D, bool forwards)
         {
             byte[] bytes = BitConverter.GetBytes(D);
 
@@ -221,15 +244,25 @@ namespace Cryspy
                 bytes[j] = result;
             }
 
-            return BitConverter.ToInt64(bytes);
+            return (UInt64) BitConverter.ToInt64(bytes);
         }
 
-        private long Subkey(int i)
+        private UInt64 BitwiseRotateLeft(UInt64 l, int bits)
+        {
+            return l << bits | (l >> (64 - bits));
+        }
+
+        private UInt64 BitwiseRotateRight(UInt64 l, int bits)
+        {
+            return l >> bits | (l << (64 - bits));
+        }
+
+        private UInt64 Subkey(int i)
         {
             byte[] subBytes = (key << i).ToByteArray();
-            byte[] longBytes = new byte[8];
-            Array.Copy(subBytes, 0, longBytes, 0, 8);
-            return BitConverter.ToInt64(longBytes);
+            byte[] UInt64Bytes = new byte[8];
+            Array.Copy(subBytes, 0, UInt64Bytes, 0, 8);
+            return (UInt64) BitConverter.ToInt64(UInt64Bytes);
         }
 
 
