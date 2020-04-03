@@ -34,23 +34,30 @@ namespace Cryspy
                 return Exit("Reading file not supported", -3);
             }
 
+
             String key = args[1];
 
             cipher = new Cipher(key);
 
-            byte[] encrypted = cipher.Encrypt(plaintext);
+            VirtualFile encrypted = cipher.Encrypt(plaintext, file);
+
+
+            if (!File.Exists(encrypted.path))
+                File.Create(encrypted.path).Close();
+
+            File.WriteAllBytes(encrypted.path, encrypted.data);
+
+            GC.Collect();
+
+            VirtualFile decrypted = cipher.Decrypt(encrypted.data, encrypted.path);
 
             String saveFile = "C:\\Users\\yveem\\Documents\\saveFile.txt";
-            String decryptFile = "C:\\Users\\yveem\\Documents\\decFile.txt";
-
-            if (!File.Exists(saveFile))
-                File.CreateText(saveFile).Close();
+            String decryptFile = "C:\\Users\\yveem\\Documents\\decypted"+decrypted.name;
 
             if (!File.Exists(decryptFile))
-                File.CreateText(decryptFile).Close();
+                File.Create(decryptFile).Close();
 
-            File.WriteAllBytes(saveFile, encrypted);
-            File.WriteAllBytes(decryptFile, cipher.Decrypt(encrypted));
+            File.WriteAllBytes(decryptFile, decrypted.data);
 
             return 0;
         }
