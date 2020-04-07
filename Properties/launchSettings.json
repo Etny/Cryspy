@@ -2,7 +2,7 @@
   "profiles": {
     "Cryspy": {
       "commandName": "Project",
-      "commandLineArgs": "C:\\Users\\yveem\\Documents\\testvid.avi 14809fb1f61891aa2da33178d835f5ec "
+      "commandLineArgs": "C:\\Users\\yveem\\Documents\\testMp3.mp3 14809fb1f61891aa2da33178d835f5ec "
     }
   }
 }
