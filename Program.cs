@@ -14,7 +14,7 @@ namespace Cryspy
         static int Main(string[] args)
         {
             if (args.Length < ArgumentCount)
-                return Exit("Bad arguments", -1);
+                return Exit("Cryspy -file -key", -1);
 
             String file = args[0];
 
@@ -34,22 +34,18 @@ namespace Cryspy
                 return Exit("Reading file not supported", -3);
             }
 
-
             String key = args[1];
 
             cipher = new Cipher(key);
 
-            VirtualFile encrypted = cipher.Encrypt(plaintext, file);
-
-            OutputFile(encrypted);
-
-            GC.Collect();
-
-            VirtualFile decrypted = cipher.Decrypt(encrypted.data, encrypted.path);
-
-            decrypted.path = "C:\\Users\\yveem\\Documents\\decypted"+decrypted.name;
-
-            OutputFile(decrypted);
+            if(Path.GetExtension(file).ToLower() == ".ryce")
+            {
+                OutputFile(cipher.Decrypt(plaintext, file));
+            }
+            else
+            {
+                OutputFile(cipher.Encrypt(plaintext, file));
+            }
 
             return 0;
         }
@@ -59,12 +55,30 @@ namespace Cryspy
             if (File.Exists(f.path))
             {
                 Console.WriteLine("\'{0}\' already exists, do you wish to override it? (y/n)", f.name);
-                char input;
-            tryAgain: input = Console.ReadKey(true).KeyChar;
-                if (input != 'y' && input != 'n') goto tryAgain;
 
-                if (input != 'n')
+                char input = 'o';
+                while (input != 'y' && input != 'n')
+                    input = Console.ReadKey(true).KeyChar;
+                
+
+                if (input == 'n') {
+                    Console.WriteLine("Do you wish to store it under a different name? (y/n)");
+
+                    input = 'o';
+                    while (input != 'y' && input != 'n')
+                        input = Console.ReadKey(true).KeyChar;
+
+                    if(input == 'n')
+                        return;
+
+                    Console.Write("Enter new name (without extension): ");
+
+                    String extension = Path.GetExtension(f.path);
+                    String newName = Console.ReadLine() + extension;
+                    f.SetName(newName);
+                    OutputFile(f);
                     return;
+                }
             }
             else
             {

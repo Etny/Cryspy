@@ -32,7 +32,9 @@ namespace Cryspy
         //The size of the input/outputs of each SBox in bits
         private int SBoxInputSize = 4;
         //The list of current SBoxes, based on the key
-        private SBox[] SubBoxes = new SBox[16];
+        private byte[] SubBoxesForwards = new byte[16];
+        private byte[] SubBoxesBackwards = new byte[16];
+
 
         //Used for padding with random bytes
         private Random rng = new Random();
@@ -99,22 +101,28 @@ namespace Cryspy
         /// </summary>
         private void GenerateSubBoxArray()
         {
+            //Create an array to keep track of the SBoxes we've alread yset
+            bool[] SubBoxSet = new bool[16];
+
             for(byte i = 0; i<16; i++)
             {
                 //Take a 4-bit piece of the key
                 byte piece = (byte)((key >> (i * SBoxInputSize)) & 15); 
 
                 //Find the next empty space in the SBox array from index piece forwards
-                while(SubBoxes[piece] != null)
+                while(SubBoxSet[piece] == true)
                 {
                     piece++;
                     if (piece >= 15) piece -= 15;
                 }
 
+                SubBoxSet[piece] = true;
+
                 //Fill it with an SBox
-                SubBoxes[piece] = new SBox(i, piece);
+                SubBoxesForwards[piece] = i;
+                SubBoxesBackwards[i] = piece;
             }
-        }
+           }
 
         /// <summary>
         /// Encrypts a file of any type
@@ -163,6 +171,9 @@ namespace Cryspy
             Array.Copy(metaDataBlocks, 0, fullData, currentMetaDataIndex * BlockSize + BlockSize, metaDataLength * BlockSize);
             Array.Copy(data, currentMetaDataIndex * BlockSize, fullData, (currentMetaDataIndex * BlockSize) + BlockSize + (metaDataLength * BlockSize), data.Length - (currentMetaDataIndex * BlockSize));
 
+            data = null;
+            GC.Collect();
+
             //Establish the name of the encrypted file
             String fileName = Path.GetFileNameWithoutExtension(path) + ".ryce";
 
@@ -204,7 +215,7 @@ namespace Cryspy
             byte dataIndex = (byte)(rawData[0] & 15);
 
             //Get the length of the final block and the length of the original file name
-            byte finalBlockLength = rawData[dataIndex];
+            byte finalBlockLength = (byte)((rawData[dataIndex] & 15) + 1);
             byte nameLength = rawData[dataIndex + 1];
 
             //Get the index of the metadata block(s) from the header block
@@ -457,52 +468,29 @@ namespace Cryspy
         /// <returns>The substituted value</returns>
         private UInt64 Substitute(UInt64 D, bool forwards)
         {
-            //Split the value into bytes
-            byte[] bytes = BitConverter.GetBytes(D);
+            //The amount of substitutions to do
+            int subs = 64 / SBoxInputSize;
 
-            //The maximum value of n-bits, where n is the input/output size of the SBoxes. Used to isolate parts of a byte
-            byte maxPieceValue = (byte)(Math.Pow(2, SBoxInputSize) - 1);
+            UInt64 piece;
+            UInt64 sub;
+            UInt64 result = 0;
 
-            //Iterate throught the bytes
-            for (int j = 0; j < bytes.Length; j++)
+            for(int i = 0; i < subs; i++)
             {
-                byte b = bytes[j];
+                //Get a 4-bit piece of D
+                piece = (D >> (i * SBoxInputSize)) & 15;
 
-                byte result = 0;
-                byte piece;
-                byte sub = 0;
+                //Find it's substitute
+                if (forwards)
+                    sub = SubBoxesForwards[piece];
+                else
+                    sub = SubBoxesBackwards[piece];
 
-                //Iterate throught the bytes pieces
-                for (int i = 0; i < (8 / SBoxInputSize); i++)
-                {
-                    //Get a n-bit piece of the byte, where n is the input/output size of the SBoxes
-                    piece = (byte)((b >> (i * SBoxInputSize)) & maxPieceValue);
-
-                    //Peform the substitution
-                    foreach (SBox s in SubBoxes)
-                    {
-                        if (forwards && s.Input == piece)
-                        {
-                            sub = s.Output;
-                            break;
-                        }
-                        else if (!forwards && s.Output == piece)
-                        {
-                            sub = s.Input;
-                            break;
-                        }
-                    }
-
-                    //Add the output to the result
-                    result += (byte)(sub << (i * SBoxInputSize));
-                }
-
-                //Replace the byte with it's substituted counterpart
-                bytes[j] = result;
+                //Add it to the result
+                result |= (sub << (i * SBoxInputSize));
             }
 
-            //Return the substituted value
-            return (UInt64) BitConverter.ToInt64(bytes);
+            return result;
         }
 
         /// <summary>
@@ -541,16 +529,16 @@ namespace Cryspy
             //Randomly pick a 32-bit value to be the starting index for the metadata block(s)
             currentMetaDataIndex = (UInt32) (blockCount == 0 ? 0 : rng.Next(0, blockCount - 2));
 
-            //Randomly pick and offset to store the final block length and name length at to stop known-plaintext attacks
+            //Randomly pick and offset to store the final block length and name length at to fight known-plaintext attacks
             byte dataIndex = (byte)(rng.Next(1, BlockSize - 5));
 
             //Create an array to store our header block in
             byte[] headerBlock = new byte[BlockSize];
 
-            //Set the first byte to the data index Or'ed with 4 random bits to stop known-plaintext attacks
+            //Set the first byte to the data index salted with 4 random bits to fight known-plaintext attacks
             headerBlock[0] = (byte)(dataIndex | (rng.Next(0, 16) << 4));
-            //Store the final block length at the data index
-            headerBlock[dataIndex] = finalBlockLength;
+            //Store the final block length at the data index salted with 4 random bits to fight know-plaintext attacks
+            headerBlock[dataIndex] = (byte)((finalBlockLength - 1) | (rng.Next(0, 16) << 4));
             //Store the filename length after the final block length 
             headerBlock[dataIndex + 1] = nameLength;
 
@@ -602,22 +590,9 @@ namespace Cryspy
                     metaDataBlocks[i] = (byte)(rng.Next(0, 256));
             }
 
-            //return the metadata block(s)
+            //Return the metadata block(s)
             return metaDataBlocks;
         }
-
-        //A class used to store the input and output of SBoxes
-        private class SBox
-        {
-            public byte Input, Output;
-
-            public SBox(byte input, byte output)
-            {
-                this.Input = input;
-                this.Output = output;
-            }
-        }
-   
     }
 
     class VirtualFile
@@ -625,5 +600,12 @@ namespace Cryspy
         public byte[] data;
         public String name;
         public String path;
+
+
+        public void SetName(String newName)
+        {
+            this.name = newName;
+            this.path = Path.GetDirectoryName(path) + "\\" + name;
+        }
     }
 }
