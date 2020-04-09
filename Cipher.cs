@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Dirichlet.Numerics;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Numerics;
@@ -15,7 +16,7 @@ namespace Cryspy
         public static readonly int Rounds = 16;
 
         //The key used for encryption and decryption
-        private BigInteger key;
+        private UInt128 key;
         //The key's 32-bit segments
         private UInt32[] keySegments = new UInt32[4];
         //The round keys organized by round
@@ -43,17 +44,131 @@ namespace Cryspy
         Stopwatch timer;
 
 
-        public Cipher(String key)
+        public Cipher()
         {
-            //Parse the key
-            this.key = BigInteger.Parse(key, System.Globalization.NumberStyles.HexNumber);
             //Initialize timer
-            this.timer = new Stopwatch();
+            this.timer = new Stopwatch();  
+        }
+
+        public bool SetKey(String keyArg)
+        {
+            if (!ParseKey(keyArg)) return false;
 
             //Create the rounds keys for this key
             GenerateKeySchedule();
             //Create the SBoxes for this key
             GenerateSubBoxArray();
+
+            return true;
+        }
+
+        private bool ParseKey(String keyString)
+        {
+            KeyEncoding encoding = KeyEncoding.UNKNOWN;
+
+            String nums = "0123456789";
+            String hexNums = "abcdefABCDEFxX";
+
+            foreach(char c in keyString.ToCharArray())
+            {
+                switch (encoding)
+                {
+                    case KeyEncoding.UNKNOWN:
+                        if (nums.Contains(c))
+                            encoding = KeyEncoding.DECIMAL;
+                        else if (hexNums.Contains(c))
+                            encoding = KeyEncoding.HEX;
+                        else if ((short)c <= 255)
+                            encoding = KeyEncoding.ASCII;
+                        else
+                            encoding = KeyEncoding.UNICODE;
+                            break;
+
+                    case KeyEncoding.DECIMAL:
+                        if (nums.Contains(c))
+                            continue;
+                        else if (hexNums.Contains(c))
+                            encoding = KeyEncoding.HEX;
+                        else if ((short)c <= 255)
+                            encoding = KeyEncoding.ASCII;
+                        else
+                            encoding = KeyEncoding.UNICODE;
+                        break;
+
+                    case KeyEncoding.HEX:
+                        if (nums.Contains(c) || hexNums.Contains(c))
+                            continue;
+                        else if ((short)c <= 255)
+                            encoding = KeyEncoding.ASCII;
+                        else
+                            encoding = KeyEncoding.UNICODE;
+                        break;
+
+                    case KeyEncoding.ASCII:
+                        if ((short)c <= 255)
+                            continue;
+                        else
+                            encoding = KeyEncoding.UNICODE;
+                        break;
+                }
+            }
+
+            switch (encoding)
+            {
+                case KeyEncoding.DECIMAL:
+                    try
+                    {
+                        key = UInt128.Parse(keyString);
+                        return true;
+                    } catch (Exception e)
+                    {
+                        Console.WriteLine(e.Message);
+                        return false;
+                    }
+
+                case KeyEncoding.HEX:
+                    try
+                    {
+                        UInt128.TryParse(keyString, System.Globalization.NumberStyles.HexNumber, System.Globalization.NumberFormatInfo.CurrentInfo, out this.key);
+                        return true;
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e.Message);
+                        return false;
+                    }
+
+                case KeyEncoding.ASCII:
+                    if (keyString.Length > BlockSize)
+                    {
+                        Console.WriteLine("Key too long, maximum of 16 ASCII characters allowed");
+                        return false;
+                    }
+
+                    key = 0;
+
+                    for (int i = 0; i < keyString.Length; i++)
+                        key |= (UInt128)((byte)keyString.ToCharArray()[i] << (i * 8));
+
+                    return true;
+
+                case KeyEncoding.UNICODE:
+                    if (keyString.Length*2 > BlockSize)
+                    {
+                        Console.WriteLine("Key too long, maximum of 8 Unicode characters allowed");
+                        return false;
+                    }
+
+                    key = 0;
+
+                    for (int i = 0; i < keyString.Length; i++)
+                        key |= (UInt128)((short)(keyString.ToCharArray()[i]) << (i * 16));
+
+                    return true;
+
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -61,15 +176,9 @@ namespace Cryspy
         /// </summary>
         private void GenerateKeySchedule()
         {
-            byte[] keyBytes = key.ToByteArray();
-            byte[] segmentBuffer = new byte[4];
-
             //Split the key into 4 32-bit segments
-            for(int i = 0; i < 4; i++)
-            {
-                Array.Copy(keyBytes, i * 4, segmentBuffer, 0, 4);
-                keySegments[i] = BitConverter.ToUInt32(segmentBuffer);
-            }
+            for(int i = 0; i < 4; i++)    
+                keySegments[i] = (key >> (i * 32)) & UInt32.MaxValue;
 
             //Generate the round keys and store them in the appropriate array
             for (int i = 0; i < Rounds; i++)
@@ -592,6 +701,12 @@ namespace Cryspy
 
             //Return the metadata block(s)
             return metaDataBlocks;
+        }
+
+
+        private enum KeyEncoding
+        {
+            DECIMAL, ASCII, UNICODE, HEX, UNKNOWN
         }
     }
 

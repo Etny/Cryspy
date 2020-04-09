@@ -36,7 +36,13 @@ namespace Cryspy
 
             String key = args[1];
 
-            cipher = new Cipher(key);
+            cipher = new Cipher();
+
+            while(!cipher.SetKey(key))
+            {
+                Console.Write("Please enter a valid key: ");
+                key = Console.ReadLine();
+            }
 
             if(Path.GetExtension(file).ToLower() == ".ryce")
             {
@@ -56,19 +62,22 @@ namespace Cryspy
             {
                 Console.WriteLine("\'{0}\' already exists, do you wish to override it? (y/n)", f.name);
 
-                char input = 'o';
-                while (input != 'y' && input != 'n')
-                    input = Console.ReadKey(true).KeyChar;
-                
+                char input;
 
-                if (input == 'n') {
+                do
+                    input = Console.ReadKey(true).KeyChar;
+                while (input != 'y' && input != 'n');
+
+
+
+                    if (input == 'n') {
                     Console.WriteLine("Do you wish to store it under a different name? (y/n)");
 
-                    input = 'o';
-                    while (input != 'y' && input != 'n')
+                    do
                         input = Console.ReadKey(true).KeyChar;
+                    while (input != 'y' && input != 'n');
 
-                    if(input == 'n')
+                    if (input == 'n')
                         return;
 
                     Console.Write("Enter new name (without extension): ");
