@@ -13,8 +13,21 @@ namespace Cryspy
 
         static int Main(string[] args)
         {
+            Console.WriteLine("Cryspy encryption program v1");
+            Console.WriteLine();
+
             if (args.Length < ArgumentCount)
-                return Exit("Cryspy -file -key", -1);
+            {
+                Console.WriteLine("Enter file and key. You can also enter them as arguments (Crypsy -file -key).");
+
+                args = new String[ArgumentCount];
+
+                Console.Write("File: ");
+                args[0] = Console.ReadLine();
+
+                Console.Write("Key: ");
+                args[1] = Console.ReadLine();
+            }
 
             String file = args[0];
 
@@ -40,11 +53,16 @@ namespace Cryspy
                 OutputFile(cipher.Encrypt(file));
             }
 
+            Console.WriteLine("\nPress any key to exit...");
+            Console.ReadKey(true);
+
             return 0;
         }
 
         private static void OutputFile(VirtualFile f)
         {
+            Console.WriteLine();
+
             if (File.Exists(f.path))
             {
                 Console.WriteLine("\'{0}\' already exists, do you wish to override it? If you don't you can store it under a different name. (y/n)", f.name);
