@@ -50,18 +50,29 @@ namespace Cryspy
             this.timer = new Stopwatch();  
         }
 
+        /// <summary>
+        /// Parse a string as the key and generate the appropriate data
+        /// </summary>
+        /// <param name="keyArg">The string to parse</param>
+        /// <returns>Whether or not the parsing was succesfull</returns>
         public bool SetKey(String keyArg)
         {
             if (!ParseKey(keyArg)) return false;
 
             //Create the rounds keys for this key
             GenerateKeySchedule();
+
             //Create the SBoxes for this key
             GenerateSubBoxArray();
 
             return true;
         }
 
+        /// <summary>
+        /// Parses a string into the key
+        /// </summary>
+        /// <param name="keyString">The string to parse</param>
+        /// <returns>Whether or not the parsing was succesfull</returns>
         private bool ParseKey(String keyString)
         {
             KeyEncoding encoding = KeyEncoding.UNKNOWN;
@@ -69,6 +80,7 @@ namespace Cryspy
             String nums = "0123456789";
             String hexNums = "abcdefABCDEFxX";
 
+            //Establish which format to parse the string as
             foreach(char c in keyString.ToCharArray())
             {
                 switch (encoding)
@@ -115,6 +127,7 @@ namespace Cryspy
 
             switch (encoding)
             {
+                //For decimal, just parse. Easy Peasy
                 case KeyEncoding.DECIMAL:
                     try
                     {
@@ -126,10 +139,11 @@ namespace Cryspy
                         return false;
                     }
 
+                //For hex first add 00 at the start of the string to ensure good parsing, and then parse
                 case KeyEncoding.HEX:
                     try
                     {
-                        UInt128.TryParse(keyString, System.Globalization.NumberStyles.HexNumber, System.Globalization.NumberFormatInfo.CurrentInfo, out this.key);
+                        UInt128.TryParse("00" + keyString, System.Globalization.NumberStyles.HexNumber, System.Globalization.NumberFormatInfo.CurrentInfo, out this.key);
                         return true;
                     }
                     catch (Exception e)
@@ -138,6 +152,7 @@ namespace Cryspy
                         return false;
                     }
 
+                //For ASCII take the low byte of the characters
                 case KeyEncoding.ASCII:
                     if (keyString.Length > BlockSize)
                     {
@@ -152,6 +167,7 @@ namespace Cryspy
 
                     return true;
 
+                //For unicode take both bytes of the characters
                 case KeyEncoding.UNICODE:
                     if (keyString.Length*2 > BlockSize)
                     {
@@ -165,7 +181,6 @@ namespace Cryspy
                         key |= (UInt128)((short)(keyString.ToCharArray()[i]) << (i * 16));
 
                     return true;
-
             }
 
             return false;
@@ -235,29 +250,31 @@ namespace Cryspy
 
         /// <summary>
         /// Encrypts a file of any type
-        /// </summary>
-        /// <param name="data">The raw byte data of the file to encrypt</param>
+        /// </summary>]
         /// <param name="path">The path of the file to encrypt</param>
         /// <returns>A VirtualFile containing the encrypted data and appropraite file name</returns>
-        public VirtualFile Encrypt(byte[] data, String path)
+        public VirtualFile Encrypt(String path)
         {
             //Start the timer to track time taken after encryption is finished
             timer.Restart();
 
             Console.WriteLine("Starting Encryption...");
 
+            //Create a filestream to read the data
+            FileStream stream = File.OpenRead(path);
+
             //Establish the total length of the data and the non-padded length of the final block
-            int dataLength = data.Length;
+            long dataLength = stream.Length;
             int finalBlockSize = BlockSize;
 
             if(dataLength % BlockSize != 0)
             {
-                finalBlockSize = dataLength % BlockSize;
+                finalBlockSize = (int)dataLength % BlockSize;
                 dataLength += BlockSize - finalBlockSize;
             }
 
             //The amount of blocks to encrypt
-            int blockCount = dataLength / BlockSize;
+            int blockCount = (int)dataLength / BlockSize;
 
             //Create a header block, containing the length of the final block, the length of our file name and the index of our metadata block(s)
             byte[] headerBlock = GenerateHeaderBlock(path, blockCount, (byte)finalBlockSize);
@@ -272,15 +289,22 @@ namespace Cryspy
             int metaDataLength = metaDataBlocks.Length / BlockSize;
 
             //Create an array used to store the correctly ordered raw data
-            byte[] fullData = new byte[data.Length + ((1 + metaDataLength) * BlockSize)];
+            byte[] fullData = new byte[((1 + metaDataLength + blockCount) * BlockSize)];
 
             //Copy over our data into the appropriate parts or the array
             Array.Copy(headerBlock, 0, fullData, 0, BlockSize);
-            Array.Copy(data, 0, fullData, BlockSize, currentMetaDataIndex * BlockSize);
+            stream.Read(fullData, BlockSize, (int)currentMetaDataIndex * BlockSize);
             Array.Copy(metaDataBlocks, 0, fullData, currentMetaDataIndex * BlockSize + BlockSize, metaDataLength * BlockSize);
-            Array.Copy(data, currentMetaDataIndex * BlockSize, fullData, (currentMetaDataIndex * BlockSize) + BlockSize + (metaDataLength * BlockSize), data.Length - (currentMetaDataIndex * BlockSize));
+            stream.Read(fullData, (int)((currentMetaDataIndex * BlockSize) + BlockSize + (metaDataLength * BlockSize)), (int)(dataLength - (currentMetaDataIndex * BlockSize)));
 
-            data = null;
+            //Pad the data with random bytes if necessary
+            if (finalBlockSize != BlockSize)
+                for (int i = finalBlockSize; i < BlockSize; i++)
+                    fullData[((metaDataLength + blockCount) * BlockSize) + i] = (byte)rng.Next(0, 256);
+
+            //Close the filestream and free up memory
+            stream.Close();
+            stream.Dispose();
             GC.Collect();
 
             //Establish the name of the encrypted file
@@ -307,10 +331,9 @@ namespace Cryspy
         /// <summary>
         /// Decrypts a .ryce file
         /// </summary>
-        /// <param name="data">The raw byte data of the encrypted file to decrypt</param>
         /// <param name="path">The path of the encrypted file</param>
         /// <returns>A VirtualFile containing the decrypted data and original file name</returns>
-        public VirtualFile Decrypt(byte[] data, String path)
+        public VirtualFile Decrypt(String path)
         {
             //Start the timer to track time taken after decryption is finished
             timer.Restart();
@@ -318,7 +341,7 @@ namespace Cryspy
             Console.WriteLine("Starting Decryption...");
 
             //Decrypt the raw encrypted data
-            byte[] rawData = PermutateData(data, false);
+            byte[] rawData = PermutateData(File.ReadAllBytes(path), false);
 
             //Establish the index of the basic data in the header block
             byte dataIndex = (byte)(rawData[0] & 15);
@@ -383,19 +406,8 @@ namespace Cryspy
         /// <param name="data">The data to permutate</param>
         /// <param name="encrypt">Whether or not to encrypt the data</param>
         /// <returns>The encrypted/decrypted bytes</returns>
-        public byte[] PermutateData(byte[] data, bool encrypt)
+        public byte[] PermutateData(byte[] bytes, bool encrypt)
         {
-            //Create an array with the smallest possible size to store data that is also a multiple of the block size
-            byte[] bytes = data.Length % BlockSize != 0 ? new byte[data.Length + (BlockSize - (data.Length % BlockSize))] : new byte[data.Length];
-
-
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                //Copy over data into the array
-                if (i < data.Length) bytes[i] = data[i];
-                //Or pad it out with random bytes
-                else bytes[i] = (byte)rng.Next(0, 256);
-            }
 
             //Establish the Initializing Vectors for our CBC
             lastBlock = new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };

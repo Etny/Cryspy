@@ -21,19 +21,6 @@ namespace Cryspy
             if (!File.Exists(file))
                 return Exit("File not found", -2);
 
-            byte[] plaintext;
-
-            try
-            {
-                plaintext = File.ReadAllBytes(file);
-            } catch (UnauthorizedAccessException e)
-            {
-                return Exit("Insufficient acces to file", -3);
-            } catch (NotSupportedException e)
-            {
-                return Exit("Reading file not supported", -3);
-            }
-
             String key = args[1];
 
             cipher = new Cipher();
@@ -46,11 +33,11 @@ namespace Cryspy
 
             if(Path.GetExtension(file).ToLower() == ".ryce")
             {
-                OutputFile(cipher.Decrypt(plaintext, file));
+                OutputFile(cipher.Decrypt(file));
             }
             else
             {
-                OutputFile(cipher.Encrypt(plaintext, file));
+                OutputFile(cipher.Encrypt(file));
             }
 
             return 0;
@@ -60,7 +47,7 @@ namespace Cryspy
         {
             if (File.Exists(f.path))
             {
-                Console.WriteLine("\'{0}\' already exists, do you wish to override it? (y/n)", f.name);
+                Console.WriteLine("\'{0}\' already exists, do you wish to override it? If you don't you can store it under a different name. (y/n)", f.name);
 
                 char input;
 
@@ -68,9 +55,8 @@ namespace Cryspy
                     input = Console.ReadKey(true).KeyChar;
                 while (input != 'y' && input != 'n');
 
-
-
-                    if (input == 'n') {
+                if (input == 'n') 
+                {
                     Console.WriteLine("Do you wish to store it under a different name? (y/n)");
 
                     do
