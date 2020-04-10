@@ -233,13 +233,61 @@ namespace Cryspy
             }
            }
 
+
         /// <summary>
         /// Encrypts a file of any type
         /// </summary>
         /// <param name="data">The raw byte data of the file to encrypt</param>
         /// <param name="path">The path of the file to encrypt</param>
         /// <returns>A VirtualFile containing the encrypted data and appropraite file name</returns>
-        public VirtualFile Encrypt(byte[] data, String path)
+        public VirtualFile Encrypt(String path)
+        {
+            //Start the timer to track time taken after encryption is finished
+            timer.Restart();
+
+            Console.WriteLine("Starting Encryption...");
+
+            BlockStream stream = new BlockStream(path, BlockSize);
+
+            int finalBlockSize = stream.LastBlockLength();
+
+            //The amount of blocks to encrypt
+            int blockCount = stream.DataBlockCount();
+
+            //Create a header block, containing the length of the final block, the length of our file name and the index of our metadata block(s)
+            byte[] headerBlock = GenerateHeaderBlock(path, blockCount, (byte)finalBlockSize);
+
+            //Create the metadata block(s) for our file, containg it's original name and filetype
+            byte[][] metaDataBlocks = GenerateMetaDataBlocks(path);
+
+            stream.SetHeaderBlock(headerBlock);
+            stream.SetMetaData(metaDataBlocks, currentMetaDataIndex);
+
+            //Establish the name of the encrypted file
+            String fileName = Path.GetFileNameWithoutExtension(path) + ".ryce";
+
+            //Encrypt the data and store it in a VirtualFile with it's new file name
+            VirtualFile encryptedFile = new VirtualFile() { name = fileName, path = path.Replace(Path.GetFileName(path), fileName) };
+
+            PermutateData(stream, encryptedFile.path, true);
+
+            //Stop the timer and print the elapsed time
+            timer.Stop();
+
+            float seconds = ((float)timer.ElapsedMilliseconds % 60000)/1000f;
+            int minutes = (int)((timer.ElapsedMilliseconds - (timer.ElapsedMilliseconds % 60000)) / 60000);
+
+            if (minutes > 0)
+                Console.WriteLine("Finished Encryption in {0} minutes and {1} seconds", minutes, seconds);
+            else
+                Console.WriteLine("Finished Encryption in {0} seconds", seconds);
+
+            //Return the encrypted file
+            return encryptedFile;
+        }
+
+        /*
+        public VirtualFile Encryp1(String path)
         {
             //Start the timer to track time taken after encryption is finished
             timer.Restart();
@@ -250,7 +298,7 @@ namespace Cryspy
             int dataLength = data.Length;
             int finalBlockSize = BlockSize;
 
-            if(dataLength % BlockSize != 0)
+            if (dataLength % BlockSize != 0)
             {
                 finalBlockSize = dataLength % BlockSize;
                 dataLength += BlockSize - finalBlockSize;
@@ -292,7 +340,7 @@ namespace Cryspy
             //Stop the timer and print the elapsed time
             timer.Stop();
 
-            float seconds = ((float)timer.ElapsedMilliseconds % 60000)/1000f;
+            float seconds = ((float)timer.ElapsedMilliseconds % 60000) / 1000f;
             int minutes = (int)((timer.ElapsedMilliseconds - (timer.ElapsedMilliseconds % 60000)) / 60000);
 
             if (minutes > 0)
@@ -375,6 +423,59 @@ namespace Cryspy
 
             //Return the decrypted file
             return decryptedFile;
+        }
+        */
+
+        private void PermutateData(BlockStream blocks, String outputPath, bool encrypt)
+        {
+            //Create an array with the smallest possible size to store data that is also a multiple of the block size
+            int blockCount = blocks.FullBlockCount();
+
+            FileStream writeStream = File.OpenWrite(outputPath);
+
+            //Establish the Initializing Vectors for our CBC
+            lastBlock = new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+            lastBlockLPopCount = 10;
+            lastBlockRPopCount = 10;
+
+            byte[] block = new byte[BlockSize];
+            byte[] permutated;
+
+            for (int index = 0; index < blocks.Length; index += BlockSize)
+            {
+                //Copy 1 block of data into the block array
+                block = blocks.NextBlock();
+
+                //If we are encrypting, Xor the block with the last encrypted block for CBC
+                if (encrypt)
+                {
+                    for (int i = 0; i < BlockSize; i++)
+                        block[i] = (byte)(block[i] ^ lastBlock[i]);
+                }
+
+                //Encrypt/Decrypt the block
+                permutated = PermutateBlock(block, encrypt);
+
+                //If we are decrypting, Xor the decrypted block with the last encrypted block and then store the encrypted version of this block as the last block
+                if (!encrypt)
+                {
+                    for (int i = 0; i < BlockSize; i++)
+                        permutated[i] = (byte)(permutated[i] ^ lastBlock[i]);
+
+                    lastBlock = (byte[])block.Clone();
+                }
+                //If we are encrypting, store the encrypted version of this block as the last block
+                else
+                {
+                    lastBlock = (byte[])permutated.Clone();
+                }
+
+                //Copy the encrypted/decrypted block into our final array
+                writeStream.Write(block, 0, BlockSize);
+            }
+
+            //Return the encrypted block
+            writeStream.Close();
         }
 
         /// <summary>
@@ -670,7 +771,7 @@ namespace Cryspy
         /// </summary>
         /// <param name="path">The path of the file to generate metadata for</param>
         /// <returns>One or more block(s) of metadata</returns>
-        private byte[] GenerateMetaDataBlocks(String path)
+        private byte[][] GenerateMetaDataBlocks(String path)
         {
             //Split the filename into chars
             String name = Path.GetFileName(path);
@@ -679,30 +780,152 @@ namespace Cryspy
             //Establish the amount of blocks needed to store the filename
             int metaDataLength = name.Length * 2;
             if (metaDataLength % BlockSize != 0) metaDataLength += BlockSize - (metaDataLength % BlockSize);
+            metaDataLength /= BlockSize;
 
             //Create an array to store the metadata in
-            byte[] metaDataBlocks = new byte[metaDataLength];
+            byte[][] metaDataBlocks = new byte[metaDataLength][];
+
+            for (int i = 0; i < metaDataLength; i++)
+                metaDataBlocks[i] = new byte[BlockSize];
 
             //Store the file name
-            for(int i = 0; i<chars.Length; i++)
+            for (int i = 0; i < chars.Length; i++)
             {
                 char c = chars[i];
 
-                metaDataBlocks[i * 2] = (byte)(c & 255);
-                metaDataBlocks[i * 2 + 1] = (byte)((c & 65280) >> 8);
+                int index = i * 2;
+                int block = (index - (index % BlockSize)) / BlockSize;
+                index %= BlockSize;
+
+                metaDataBlocks[block][index] = (byte)(c & 255);
+                metaDataBlocks[block][index + 1] = (byte)((c & 65280) >> 8);
             }
 
             //If length of the name in bytes is not a multiple of the block size, pad out the data with random bytes
-            if (metaDataLength != (name.Length * 2))
+            if ((metaDataLength * BlockSize) != (name.Length * 2))
             {
-                for (int i = name.Length * 2; i < metaDataLength; i++)
-                    metaDataBlocks[i] = (byte)(rng.Next(0, 256));
+                for (int i = name.Length * 2; i < (metaDataLength * BlockSize); i++)
+                    metaDataBlocks[metaDataLength - 1][i % BlockSize] = (byte)(rng.Next(0, 256));
             }
 
             //Return the metadata block(s)
             return metaDataBlocks;
         }
 
+        private class BlockStream {
+
+            private FileStream stream;
+
+            private int BlockSize;
+
+            private byte[] headerBlock = null;
+            private bool wroteHeader = true;
+
+            private byte[][] metaData = null;
+            private bool writtingMetaData = false;
+            private int writtenMetaDataLength = 0;
+            private uint metaDataIndex = 0;
+
+            public long Length = 0;
+
+            private Random rng;
+
+
+            public BlockStream(String path, int BlockSize)
+            {
+                stream = File.OpenRead(path);
+                this.BlockSize = BlockSize;
+                this.rng = new Random();
+
+                Length = GetLength();
+            }
+
+            public byte[] NextBlock()
+            {
+                byte[] block = new byte[BlockSize];
+
+                if(stream.Position == 0 && !wroteHeader)
+                {
+                    wroteHeader = true;
+                    return headerBlock;
+                }
+
+                if(stream.Position == metaDataIndex && !writtingMetaData && writtenMetaDataLength == 0)
+                {
+                    writtingMetaData = true;
+                }
+
+                if (writtingMetaData)
+                {
+                    block = metaData[++writtenMetaDataLength];
+
+                    if (writtenMetaDataLength >= metaData.Length)
+                        writtingMetaData = false;
+
+                    return block;
+                }
+
+                int read = stream.Read(block, 0, BlockSize);
+
+                if(read < BlockSize)
+                    for (int i = read; i < BlockSize; i++)
+                        block[i] = (byte)rng.Next(0, 256);
+
+                stream.Flush();
+
+                return block;
+            }
+
+            public long GetLength()
+            {
+                long length = stream.Length;
+                if (headerBlock != null) length += BlockSize;
+                if (metaData != null) length += (metaData.Length * BlockSize);
+
+                return length;
+            }
+
+            public int FullBlockCount()
+            {
+                if (Length % BlockSize == 0)
+                    return (int)(Length / BlockSize);
+
+                return (int)(Length + (BlockSize - (Length % BlockSize))) / BlockSize;
+            }
+
+            public int DataBlockCount()
+            {
+                if (stream.Length % BlockSize == 0)
+                    return (int)(stream.Length / BlockSize);
+
+                return (int)(stream.Length + (BlockSize - (stream.Length % BlockSize))) / BlockSize;
+            }
+
+            public void SetHeaderBlock(byte[] headerBlock)
+            {
+                this.headerBlock = headerBlock;
+                wroteHeader = false;
+
+                Length = GetLength();
+            }
+
+            public void SetMetaData(byte[][] metaData, uint index)
+            {
+                this.metaData = metaData;
+                this.metaDataIndex = index;
+
+                Length = GetLength();
+            }
+
+            public int LastBlockLength()
+            {
+                if (stream.Length % BlockSize == 0)
+                    return BlockSize;
+                else
+                    return (int)(stream.Length % BlockSize);
+            }
+
+        }
 
         private enum KeyEncoding
         {

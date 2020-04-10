@@ -46,11 +46,11 @@ namespace Cryspy
 
             if(Path.GetExtension(file).ToLower() == ".ryce")
             {
-                OutputFile(cipher.Decrypt(plaintext, file));
+             //   OutputFile(cipher.Decrypt(plaintext, file));
             }
             else
             {
-                OutputFile(cipher.Encrypt(plaintext, file));
+                OutputFile(cipher.Encrypt(file));
             }
 
             return 0;
