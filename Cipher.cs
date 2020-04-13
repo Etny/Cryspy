@@ -32,7 +32,7 @@ namespace Cryspy
 
         //The size of the input/outputs of each SBox in bits
         private int SBoxInputSize = 4;
-        //The list of current SBoxes, based on the key
+        //The list of SBoxes, based on the key
         private byte[] SubBoxesForwards = new byte[16];
         private byte[] SubBoxesBackwards = new byte[16];
 
@@ -46,7 +46,6 @@ namespace Cryspy
 
         public Cipher()
         {
-            //Initialize timer
             this.timer = new Stopwatch();  
         }
 
@@ -78,7 +77,7 @@ namespace Cryspy
             KeyEncoding encoding = KeyEncoding.UNKNOWN;
 
             String nums = "0123456789";
-            String hexNums = "abcdefABCDEFxX";
+            String hexNums = "abcdefABCDEF";
 
             //Establish which format to parse the string as
             foreach(char c in keyString.ToCharArray())
@@ -237,7 +236,7 @@ namespace Cryspy
                 while(SubBoxSet[piece] == true)
                 {
                     piece++;
-                    if (piece >= 15) piece -= 15;
+                    if (piece >= 16) piece = 0;
                 }
 
                 SubBoxSet[piece] = true;
@@ -401,7 +400,7 @@ namespace Cryspy
         }
 
         /// <summary>
-        /// Splits the raw data into blocks and encrypts of decrypts it
+        /// Splits the raw data into blocks and encrypts or decrypts it
         /// </summary>
         /// <param name="data">The data to permutate</param>
         /// <param name="encrypt">Whether or not to encrypt the data</param>
@@ -472,7 +471,7 @@ namespace Cryspy
             L = (UInt64) BitConverter.ToInt64(data.AsSpan(0, 8));
             R = (UInt64) BitConverter.ToInt64(data.AsSpan(8, 8));
 
-            //If encrypting, rotate the two halves left and the store their set bit counts
+            //If encrypting, rotate the two halves left and then store their set bit counts
             if (encrypt)
             {
                 BitwiseRotateLeft(ref L, (int)lastBlockRPopCount);
@@ -524,7 +523,7 @@ namespace Cryspy
             UInt64 roundKey = Subkeys[round];
 
             //Xor R with the round key
-            R = R ^ roundKey;
+            R ^= roundKey;
 
             //Rotate R left based on the value of L to create diffusion
             BitwiseRotateLeft(ref R, (int)(L % 64));
@@ -533,7 +532,7 @@ namespace Cryspy
             R = Substitute(R, true);
 
             //Xor L with R
-            L = L ^ R;
+            L ^= R;
 
             //Swap L and R, unless this is the final round of encryption
             if (round < Rounds - 1)
@@ -561,7 +560,7 @@ namespace Cryspy
             //Perform the same functions performed during an encryption round, but backwards
 
             //Xor L with R
-            L = L ^ R;
+            L ^= R;
 
             //Put R through the SBoxes, but this time backwards
             R = Substitute(R, false);
@@ -570,7 +569,7 @@ namespace Cryspy
             BitwiseRotateRight(ref R, (int)(L % 64));
 
             //Xor R with the round key
-            R = R ^ roundKey;
+            R ^= roundKey;
 
             //Swap L and R, unless this is the final round of decryption
             if (i > 0)
@@ -621,6 +620,7 @@ namespace Cryspy
         /// <param name="bits">the amount of bits to rotate by</param>
         private void BitwiseRotateLeft(ref UInt64 l, int bits)
         {
+            bits %= 64;
             l = (l << bits | (l >> (64 - bits)));
         }
 
@@ -631,6 +631,7 @@ namespace Cryspy
         /// <param name="bits">the amount of bits to rotate by</param>
         private void BitwiseRotateRight(ref UInt64 l, int bits)
         {
+            bits %= 64;
             l = (l >> bits | (l << (64 - bits)));
         }
 
