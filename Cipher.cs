@@ -43,7 +43,6 @@ namespace Cryspy
         //Used for tracking time
         Stopwatch timer;
 
-
         public Cipher()
         {
             this.timer = new Stopwatch();  
@@ -245,7 +244,7 @@ namespace Cryspy
                 SubBoxesForwards[piece] = i;
                 SubBoxesBackwards[i] = piece;
             }
-           }
+        }
 
         /// <summary>
         /// Encrypts a file of any type
@@ -449,7 +448,7 @@ namespace Cryspy
                 permutated.CopyTo(bytes, index);
             }
 
-            //Return the encrypted block
+            //Return the encrypted/decrypted data
             return bytes;
         }
         
